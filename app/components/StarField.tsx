@@ -53,16 +53,10 @@ export function StarField({ showDebug = false }: StarFieldProps) {
         const posBuffer = await posResponse.arrayBuffer();
         const positions = new Float32Array(posBuffer);
 
-        // Fetch magnitudes
-        const magResponse = await fetch("/gcns-mag.bin");
-        const magBuffer = await magResponse.arrayBuffer();
-        const magnitudes = new Float32Array(magBuffer);
-
         if (!isMounted) return;
 
         if (showDebug) {
           console.log(`Loaded ${positions.length / 3} stars`);
-          console.log(`Magnitudes array length: ${magnitudes.length}`);
           
           // Efficiently find min/max without spreading large arrays
           let posMin = positions[0];
@@ -83,10 +77,6 @@ export function StarField({ showDebug = false }: StarFieldProps) {
         geometry.setAttribute(
           "position", 
           new THREE.BufferAttribute(positions, 3),
-        );
-        geometry.setAttribute(
-          "magnitude",
-          new THREE.BufferAttribute(magnitudes, 1),
         );
 
         // Create material with sphere-like texture
