@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+/**
+ * UI controls panel for adjusting camera and scene settings
+ */
 interface ControlsUIProps {
   onResetCamera?: () => void;
   onToggleAutoRotate?: () => void;
@@ -9,9 +12,6 @@ interface ControlsUIProps {
   autoRotateEnabled?: boolean;
 }
 
-/**
- * UI controls for camera and scene adjustments
- */
 export function ControlsUI({
   onResetCamera,
   onToggleAutoRotate,

@@ -10,7 +10,7 @@ import { Earth } from "./Earth";
 import { StarField } from "./StarField";
 
 /**
- * Scene content with controllable camera
+ * Main 3D scene content with stars, Earth, camera, and post-processing
  */
 function SceneContent({
   autoRotate,
@@ -33,7 +33,7 @@ function SceneContent({
       <ambientLight intensity={0.5} color="#ffffff" />
       <directionalLight position={[50, 50, 50]} intensity={0.4} />
 
-      {/* Camera and controls */}
+      {/* Camera setup */}
       <PerspectiveCamera
         makeDefault
         position={[0, 0, 50]}
@@ -41,6 +41,8 @@ function SceneContent({
         far={1000}
         fov={70}
       />
+
+      {/* Orbit controls for camera movement */}
       <OrbitControls
         ref={controlsRef}
         makeDefault
@@ -58,15 +60,17 @@ function SceneContent({
         }}
       />
 
-      {/* Scene content - Load stars first */}
+      {/* Star field loads first */}
       <StarField
         showDebug={true}
         brightness={starBrightness}
         onLoaded={onStarsLoaded}
       />
+
+      {/* Earth appears after stars are loaded */}
       {starsLoaded && <Earth />}
 
-      {/* Post-processing effects */}
+      {/* Post-processing: bloom effect for star glow */}
       <EffectComposer>
         <Bloom
           intensity={1.2 * (starBrightness ?? 2)}
@@ -80,29 +84,15 @@ function SceneContent({
 }
 
 /**
- * Main 3D scene with stars, Earth, camera, controls, and postprocessing
+ * Scene wrapper - manages state for controls and brightness
  */
 export function Scene() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [starBrightness, setStarBrightness] = useState<number | undefined>(
-    undefined,
+    undefined, // Undefined uses StarField's default brightness
   );
   const [starsLoaded, setStarsLoaded] = useState(false);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
-
-  const handleResetCamera = () => {
-    if (controlsRef.current) {
-      controlsRef.current.reset();
-    }
-  };
-
-  const handleControlsReady = (controls: OrbitControlsImpl) => {
-    controlsRef.current = controls;
-  };
-
-  const handleStarsLoaded = () => {
-    setStarsLoaded(true);
-  };
 
   return (
     <>
@@ -118,15 +108,17 @@ export function Scene() {
         <SceneContent
           autoRotate={autoRotate}
           starBrightness={starBrightness}
-          onControlsReady={handleControlsReady}
+          onControlsReady={(controls) => {
+            controlsRef.current = controls;
+          }}
           starsLoaded={starsLoaded}
-          onStarsLoaded={handleStarsLoaded}
+          onStarsLoaded={() => setStarsLoaded(true)}
         />
       </Canvas>
 
-      {/* UI Controls */}
+      {/* UI controls overlay */}
       <ControlsUI
-        onResetCamera={handleResetCamera}
+        onResetCamera={() => controlsRef.current?.reset()}
         onToggleAutoRotate={() => setAutoRotate(!autoRotate)}
         onAdjustStarBrightness={setStarBrightness}
         autoRotateEnabled={autoRotate}

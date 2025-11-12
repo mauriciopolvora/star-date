@@ -49,17 +49,16 @@ export function StarField({
   const { scene } = useThree();
 
   useEffect(() => {
-    // Load binary position data
     let isMounted = true;
 
     async function loadStars() {
       try {
-        // Fetch positions
+        // Fetch binary position data (x, y, z coordinates)
         const posResponse = await fetch("/gcns-positions.bin");
         const posBuffer = await posResponse.arrayBuffer();
         const positions = new Float32Array(posBuffer);
 
-        // Fetch magnitudes
+        // Fetch magnitude data (brightness values)
         const magResponse = await fetch("/gcns-mag.bin");
         const magBuffer = await magResponse.arrayBuffer();
         const magnitudes = new Float32Array(magBuffer);
@@ -68,9 +67,8 @@ export function StarField({
 
         if (showDebug) {
           console.log(`Loaded ${positions.length / 3} stars`);
-          console.log(`Magnitudes array length: ${magnitudes.length}`);
 
-          // Efficiently find min/max without spreading large arrays
+          // Calculate position range for debugging
           let posMin = positions[0];
           let posMax = positions[0];
           for (let i = 0; i < positions.length; i++) {
@@ -78,13 +76,10 @@ export function StarField({
             posMax = Math.max(posMax, positions[i]);
           }
 
-          console.log(`Position range:`, {
-            min: posMin,
-            max: posMax,
-          });
+          console.log(`Position range: ${posMin} to ${posMax}`);
         }
 
-        // Create geometry
+        // Create geometry with position and magnitude attributes
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute(
           "position",
@@ -95,10 +90,9 @@ export function StarField({
           new THREE.BufferAttribute(magnitudes, 1),
         );
 
-        // Create material with sphere-like texture and magnitude-based sizing
         const starTexture = createStarTexture();
 
-        // Custom shader for magnitude-based sizing
+        // Custom shader: sizes stars based on magnitude (lower magnitude = brighter/bigger)
         const vertexShader = `
           attribute float magnitude;
           uniform float baseSize;
@@ -107,18 +101,19 @@ export function StarField({
           void main() {
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             
-            // Convert magnitude to size (lower magnitude = brighter = larger)
-            // Typical visible range: -1.5 to +6.5 magnitude
-            // Clamp magnitude and invert scale
+            // Normalize magnitude to 0-1 range (inverted so bright=1, dim=0)
+            // Real star magnitudes: -2 (very bright) to 8 (very dim)
             float clampedMag = clamp(magnitude, -2.0, 8.0);
             float normalizedMag = (8.0 - clampedMag) / 10.0;
-            // Reduced power (0.7 instead of 1.5) and increased multiplier for less variation
+            
+            // Calculate size: power curve (0.6) controls variation, multiplier (5.0) controls overall size
             float size = baseSize * pow(normalizedMag, 0.6) * 5.0;
             
+            // Apply distance-based sizing (stars get smaller as camera moves away)
             gl_PointSize = size * (300.0 / -mvPosition.z);
             gl_Position = projectionMatrix * mvPosition;
             
-            // More uniform brightness - narrower range (0.5-1.0 instead of 0.2-1.0)
+            // Set opacity for more uniform brightness (0.5-1.0 range)
             vAlpha = normalizedMag * 0.5 + 0.5;
           }
         `;
@@ -141,19 +136,19 @@ export function StarField({
           vertexShader,
           fragmentShader,
           transparent: true,
-          blending: THREE.AdditiveBlending,
+          blending: THREE.AdditiveBlending, // Makes stars glow
           depthWrite: false,
           depthTest: true,
           fog: false,
         });
 
-        // Create and add points to scene
+        // Create point cloud and add to scene
         const points = new THREE.Points(geometry, material);
-        points.renderOrder = 100; // Render stars on top
-        points.frustumCulled = false; // Never cull star field
+        points.renderOrder = 100; // Render stars on top of other objects
+        points.frustumCulled = false; // Never cull the star field
         scene.add(points);
 
-        // Notify that stars are loaded
+        // Notify parent that stars are loaded (so Earth can appear)
         onLoaded?.();
 
         return () => {
