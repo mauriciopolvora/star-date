@@ -1,6 +1,7 @@
 /**
- * Preprocess GCNS VOTable to binary position array
+ * Preprocess GCNS VOTable to binary position and magnitude arrays
  * Output: gcns-positions.bin (Float32Array of [x,y,z] per star)
+ *         gcns-mag.bin (Float32Array of magnitudes)
  */
 
 import fs, { createReadStream } from "node:fs";
@@ -27,10 +28,12 @@ if (!fs.existsSync(outputDir)) {
 async function parseVOTableStream(filePath) {
   return new Promise((resolve, reject) => {
     const positions = [];
+    const magnitudes = [];
     const fieldNames = [];
     let xIndex = -1,
       yIndex = -1,
-      zIndex = -1;
+      zIndex = -1,
+      magIndex = -1;
     let inTableData = false;
     let inRow = false;
     let currentRowValues = [];
@@ -49,6 +52,7 @@ async function parseVOTableStream(filePath) {
         xIndex = fieldNames.indexOf("xcoord_50");
         yIndex = fieldNames.indexOf("ycoord_50");
         zIndex = fieldNames.indexOf("zcoord_50");
+        magIndex = fieldNames.indexOf("phot_g_mean_mag");
 
         if (xIndex === -1 || yIndex === -1 || zIndex === -1) {
           reject(
@@ -79,9 +83,12 @@ async function parseVOTableStream(filePath) {
           const x = parseFloat(currentRowValues[xIndex]);
           const y = parseFloat(currentRowValues[yIndex]);
           const z = parseFloat(currentRowValues[zIndex]);
+          const mag =
+            magIndex !== -1 ? parseFloat(currentRowValues[magIndex]) : 0;
 
           if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) {
             positions.push(x, y, z);
+            magnitudes.push(mag);
           }
 
           rowCount++;
@@ -96,7 +103,7 @@ async function parseVOTableStream(filePath) {
 
     parser.on("end", () => {
       console.log(`Total valid stars: ${positions.length / 3}`);
-      resolve({ positions });
+      resolve({ positions, magnitudes });
     });
 
     parser.on("error", (err) => {
@@ -110,14 +117,20 @@ async function parseVOTableStream(filePath) {
 /**
  * Write binary files
  */
-function writeBinaryFiles(positions, outputDir) {
+function writeBinaryFiles(positions, magnitudes, outputDir) {
   // Convert to Float32Array
   const posBuffer = new Float32Array(positions);
+  const magBuffer = new Float32Array(magnitudes);
 
   // Write positions
   const posPath = path.join(outputDir, "gcns-positions.bin");
   fs.writeFileSync(posPath, Buffer.from(posBuffer.buffer));
   console.log(`Wrote positions to ${posPath} (${posBuffer.length} floats)`);
+
+  // Write magnitudes
+  const magPath = path.join(outputDir, "gcns-mag.bin");
+  fs.writeFileSync(magPath, Buffer.from(magBuffer.buffer));
+  console.log(`Wrote magnitudes to ${magPath} (${magBuffer.length} floats)`);
 }
 
 /**
@@ -131,8 +144,8 @@ async function main() {
   }
 
   try {
-    const { positions } = await parseVOTableStream(votPath);
-    writeBinaryFiles(positions, outputDir);
+    const { positions, magnitudes } = await parseVOTableStream(votPath);
+    writeBinaryFiles(positions, magnitudes, outputDir);
     console.log("✓ Preprocessing complete!");
   } catch (err) {
     console.error("Error:", err.message);
