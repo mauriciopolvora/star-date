@@ -3,7 +3,7 @@
 import { useThree } from "@react-three/fiber";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import type { SelectedStarInfo } from "./ControlsUI";
+import type { SelectedStarInfo } from "./types";
 
 /**
  * Creates a sphere-like texture for star rendering
@@ -257,22 +257,22 @@ export function StarField({
         });
         materialRef.current = material;
 
-    // Create point cloud and add to scene
-    const points = new THREE.Points(geometry, material);
+        // Create point cloud and add to scene
+        const points = new THREE.Points(geometry, material);
         points.renderOrder = 100; // Render stars on top of other objects
         points.frustumCulled = false; // Never cull the star field
         scene.add(points);
 
-    // Attach DOM-level pointer listeners for star picking
-    const domElement = gl.domElement;
+        // Attach DOM-level pointer listeners for star picking
+        const domElement = gl.domElement;
         const pointerVector = new THREE.Vector2();
         const prevCursor = domElement.style.cursor;
         let isHovering = false;
         let pointerIsDown = false;
         let pointerMoved = false;
         let downPosition: { x: number; y: number } | null = null;
-    const originalThreshold = raycaster.params.Points.threshold;
-    raycaster.params.Points.threshold = 0.7; // Slightly widen hit area for easier selection
+        const originalThreshold = raycaster.params.Points.threshold;
+        raycaster.params.Points.threshold = 0.7; // Slightly widen hit area for easier selection
 
         const computeIntersectionIndex = (clientX: number, clientY: number) => {
           const rect = domElement.getBoundingClientRect();
