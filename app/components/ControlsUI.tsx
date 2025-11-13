@@ -2,6 +2,17 @@
 
 import { useState } from "react";
 
+export interface SelectedStarInfo {
+  index: number;
+  id: number | string;
+  name: string;
+  position: [number, number, number];
+  distanceParsec: number;
+  distanceLightYears: number;
+  luminosity: number;
+  colorRGB: [number, number, number];
+}
+
 /**
  * UI controls panel for adjusting camera and scene settings
  */
@@ -10,6 +21,9 @@ interface ControlsUIProps {
   onToggleAutoRotate?: () => void;
   onAdjustStarBrightness?: (value: number) => void;
   autoRotateEnabled?: boolean;
+  starBrightness?: number;
+  selectedStar?: SelectedStarInfo | null;
+  onClearSelectedStar?: () => void;
 }
 
 export function ControlsUI({
@@ -17,13 +31,27 @@ export function ControlsUI({
   onToggleAutoRotate,
   onAdjustStarBrightness,
   autoRotateEnabled = true,
+  starBrightness = 1,
+  selectedStar = null,
+  onClearSelectedStar,
 }: ControlsUIProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [brightness, setBrightness] = useState(200);
+  const sliderValue = Math.round(starBrightness * 100);
+  const selectedStarColorStyle = selectedStar
+    ? {
+        backgroundColor: `rgb(${selectedStar.colorRGB
+          .map((channel) => Math.round(channel * 255))
+          .join(",")})`,
+      }
+    : undefined;
+  const selectedStarColorText = selectedStar
+    ? `rgb(${selectedStar.colorRGB
+        .map((channel) => Math.round(channel * 255))
+        .join(",")})`
+    : "";
 
   const handleBrightnessChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number.parseInt(e.target.value, 10);
-    setBrightness(value);
     onAdjustStarBrightness?.(value / 100);
   };
 
@@ -75,18 +103,62 @@ export function ControlsUI({
           {/* Star brightness */}
           <div className="mb-4">
             <label htmlFor="brightness" className="text-sm block mb-2">
-              Star Brightness: {brightness}%
+              Star Brightness: {sliderValue}%
             </label>
             <input
               id="brightness"
               type="range"
               min="10"
-              max="1000"
-              value={brightness}
+              max="6000"
+              value={sliderValue}
               onChange={handleBrightnessChange}
               className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
             />
           </div>
+
+          {/* Selected star information */}
+          {selectedStar && (
+            <div className="mb-4 rounded-md border border-zinc-700 bg-zinc-800/60 p-3">
+              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-400">
+                <span>{selectedStar.name}</span>
+                <span>ID {selectedStar.id}</span>
+              </div>
+              <dl className="mt-2 space-y-1 text-sm text-zinc-200">
+                <div className="flex justify-between">
+                  <dt className="text-zinc-400">Distance (pc)</dt>
+                  <dd>{selectedStar.distanceParsec.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-zinc-400">Distance (ly)</dt>
+                  <dd>{selectedStar.distanceLightYears.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-zinc-400">Luminosity (N)</dt>
+                  <dd>{selectedStar.luminosity.toFixed(2)}</dd>
+                </div>
+              </dl>
+              <div className="mt-2 rounded bg-zinc-900/60 p-2 text-[11px] leading-relaxed text-zinc-400">
+                xyz ≈ {selectedStar.position[0].toFixed(2)}, {selectedStar.position[1].toFixed(2)}, {selectedStar.position[2].toFixed(2)}
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[11px] text-zinc-400">
+                <span>Color</span>
+                <span
+                  className="inline-flex h-3 w-3 rounded-full border border-white/40"
+                  style={selectedStarColorStyle}
+                />
+                <span className="font-mono text-[10px] text-zinc-500">
+                  {selectedStarColorText}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onClearSelectedStar?.()}
+                className="mt-3 w-full rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:text-white"
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
 
           {/* Keyboard shortcuts */}
           <div className="mt-6 pt-4 border-t border-zinc-700">
