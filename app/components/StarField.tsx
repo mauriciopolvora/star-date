@@ -1,7 +1,7 @@
 "use client";
 
 import { useThree } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { SelectedStarInfo } from "./ControlsUI";
 
@@ -37,6 +37,9 @@ function createStarTexture(): THREE.CanvasTexture {
 }
 
 const BASE_POINT_SIZE = 0.25;
+const LY_PER_PARSEC = 3.26156;
+const CORE_BASE_SCALE = 0.05;
+const GLOW_BASE_SCALE = 0.1;
 
 interface StarRecord {
   i: number | string;
@@ -49,12 +52,20 @@ interface StarRecord {
   K?: { r?: number; g?: number; b?: number };
 }
 
+interface StarRecordDerived extends StarRecord {
+  distanceParsec: number;
+  distanceLightYears: number;
+}
+
 interface StarFieldProps {
   showDebug?: boolean;
   brightness?: number;
   onLoaded?: () => void;
   onStarSelected?: (star: SelectedStarInfo | null) => void;
   selectedStarIndex?: number | null;
+  birthdayAgeYears?: number | null;
+  birthdayAgeTolerance?: number;
+  onBirthdayMatchesChange?: (stars: SelectedStarInfo[]) => void;
 }
 
 export function StarField({
@@ -64,12 +75,21 @@ export function StarField({
   onLoaded,
   onStarSelected,
   selectedStarIndex = null,
+  birthdayAgeYears = null,
+  birthdayAgeTolerance = 0.75,
+  onBirthdayMatchesChange,
 }: StarFieldProps) {
   const { scene, gl, camera, raycaster } = useThree();
   const materialRef = useRef<THREE.ShaderMaterial | null>(null);
-  const starDataRef = useRef<StarRecord[] | null>(null);
+  const starDataRef = useRef<StarRecordDerived[] | null>(null);
   const brightnessRef = useRef(brightness);
   brightnessRef.current = brightness;
+  const highlightGroupRef = useRef<THREE.Group | null>(null);
+  const highlightResourcesRef = useRef<{
+    geometries: THREE.BufferGeometry[];
+    materials: THREE.Material[];
+  } | null>(null);
+  const [starDataVersion, setStarDataVersion] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -88,10 +108,9 @@ export function StarField({
           throw new Error("Star catalog JSON is not an array");
         }
 
-        const starList = catalogJson as StarRecord[];
-
-        starDataRef.current = starList;
-        const starCount = starList.length;
+        const starListRaw = catalogJson as StarRecord[];
+        const starCount = starListRaw.length;
+        const starList: StarRecordDerived[] = new Array(starCount);
 
         const positions = new Float32Array(starCount * 3);
         const colors = new Float32Array(starCount * 3);
@@ -102,10 +121,26 @@ export function StarField({
         let maxLog = Number.NEGATIVE_INFINITY;
 
         for (let i = 0; i < starCount; i++) {
-          const star = starList[i];
-          const px = Number.isFinite(star.x) ? star.x : 0;
-          const py = Number.isFinite(star.y) ? star.y : 0;
-          const pz = Number.isFinite(star.z) ? star.z : 0;
+          const rawStar = starListRaw[i];
+          const px = Number.isFinite(rawStar.x) ? rawStar.x : 0;
+          const py = Number.isFinite(rawStar.y) ? rawStar.y : 0;
+          const pz = Number.isFinite(rawStar.z) ? rawStar.z : 0;
+
+          const distanceParsec =
+            typeof rawStar.p === "number" && Number.isFinite(rawStar.p)
+              ? rawStar.p
+              : Math.sqrt(px * px + py * py + pz * pz);
+          const distanceLightYears = distanceParsec * LY_PER_PARSEC;
+
+          const star: StarRecordDerived = {
+            ...rawStar,
+            x: px,
+            y: py,
+            z: pz,
+            distanceParsec,
+            distanceLightYears,
+          };
+          starList[i] = star;
 
           positions[i * 3] = px;
           positions[i * 3 + 1] = py;
@@ -124,6 +159,9 @@ export function StarField({
 
           starIndices[i] = i;
         }
+
+        starDataRef.current = starList;
+        setStarDataVersion((version) => version + 1);
 
         if (starCount === 0) {
           minLog = 0;
@@ -323,11 +361,8 @@ export function StarField({
             return;
           }
 
-          const distanceParsec =
-            typeof star.p === "number" && Number.isFinite(star.p)
-              ? star.p
-              : Math.sqrt(x * x + y * y + z * z);
-          const distanceLightYears = distanceParsec * 3.26156;
+          const distanceParsec = star.distanceParsec;
+          const distanceLightYears = star.distanceLightYears;
           const rgb: [number, number, number] = [
             clampColorComponent(star.K?.r),
             clampColorComponent(star.K?.g),
@@ -367,6 +402,22 @@ export function StarField({
           material.dispose();
           materialRef.current = null;
           starDataRef.current = null;
+          const highlightGroup = highlightGroupRef.current;
+          if (highlightGroup) {
+            scene.remove(highlightGroup);
+            highlightGroupRef.current = null;
+          }
+          const highlightResources = highlightResourcesRef.current;
+          if (highlightResources) {
+            for (const geometryItem of highlightResources.geometries) {
+              geometryItem.dispose();
+            }
+            for (const materialItem of highlightResources.materials) {
+              materialItem.dispose();
+            }
+            highlightResourcesRef.current = null;
+          }
+          onBirthdayMatchesChange?.([]);
           domElement.style.cursor = prevCursor;
           raycaster.params.Points.threshold = originalThreshold;
           domElement.removeEventListener("pointerdown", handlePointerDown);
@@ -389,7 +440,176 @@ export function StarField({
       isMounted = false;
       cleanup?.();
     };
-  }, [scene, gl, camera, raycaster, showDebug, onLoaded, onStarSelected]);
+  }, [
+    scene,
+    gl,
+    camera,
+    raycaster,
+    showDebug,
+    onLoaded,
+    onStarSelected,
+    onBirthdayMatchesChange,
+  ]);
+
+  useEffect(() => {
+    const cleanupHighlight = () => {
+      const group = highlightGroupRef.current;
+      if (group) {
+        scene.remove(group);
+        highlightGroupRef.current = null;
+      }
+
+      const resources = highlightResourcesRef.current;
+      if (resources) {
+        for (const geometry of resources.geometries) {
+          geometry.dispose();
+        }
+        for (const material of resources.materials) {
+          material.dispose();
+        }
+        highlightResourcesRef.current = null;
+      }
+    };
+
+    void starDataVersion;
+
+    if (
+      typeof birthdayAgeYears !== "number" ||
+      !Number.isFinite(birthdayAgeYears) ||
+      !starDataRef.current ||
+      starDataRef.current.length === 0
+    ) {
+      cleanupHighlight();
+      onBirthdayMatchesChange?.([]);
+      return cleanupHighlight;
+    }
+
+    cleanupHighlight();
+
+    const starData = starDataRef.current;
+    const tolerance = Math.max(birthdayAgeTolerance ?? 0.75, 0.1);
+
+    const candidates = starData
+      .map((star, index) => ({
+        star,
+        index,
+        difference: Math.abs(star.distanceLightYears - birthdayAgeYears),
+      }))
+      .filter((candidate) => candidate.difference <= tolerance);
+
+    if (candidates.length === 0) {
+      onBirthdayMatchesChange?.([]);
+      return cleanupHighlight;
+    }
+
+    candidates.sort((a, b) => a.difference - b.difference);
+    const limited = candidates.slice(0, 200);
+
+    const highlightGroup = new THREE.Group();
+    highlightGroup.renderOrder = 200;
+
+    const resources = {
+      geometries: [] as THREE.BufferGeometry[],
+      materials: [] as THREE.Material[],
+    };
+
+    const coreGeometry = new THREE.SphereGeometry(0.55, 24, 24);
+    const glowGeometry = new THREE.SphereGeometry(1, 24, 24);
+    const homeGeometry = new THREE.SphereGeometry(0.18, 20, 20);
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#ff3b3b"),
+      depthWrite: false,
+    });
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#ff3b3b"),
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: new THREE.Color("#67e8f9"),
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+    });
+    const homeMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color("#67e8f9"),
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    resources.geometries.push(coreGeometry, glowGeometry, homeGeometry);
+    resources.materials.push(
+      coreMaterial,
+      glowMaterial,
+      lineMaterial,
+      homeMaterial,
+    );
+
+    const matchesForCallback: SelectedStarInfo[] = [];
+
+    for (const candidate of limited) {
+      const { star, index } = candidate;
+      const position = new THREE.Vector3(star.x, star.y, star.z);
+
+      const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
+      coreMesh.position.copy(position);
+      coreMesh.scale.setScalar(CORE_BASE_SCALE);
+      coreMesh.renderOrder = 210;
+      highlightGroup.add(coreMesh);
+
+      const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+      glowMesh.position.copy(position);
+      glowMesh.scale.setScalar(GLOW_BASE_SCALE);
+      glowMesh.renderOrder = 209;
+      highlightGroup.add(glowMesh);
+
+      const lineGeometry = new THREE.BufferGeometry();
+      lineGeometry.setFromPoints([new THREE.Vector3(0, 0, 0), position]);
+      const line = new THREE.Line(lineGeometry, lineMaterial);
+      line.renderOrder = 205;
+      highlightGroup.add(line);
+      resources.geometries.push(lineGeometry);
+
+      matchesForCallback.push({
+        index,
+        id: star.i,
+        name: star.n ?? `Star ${star.i}`,
+        position: [star.x, star.y, star.z],
+        distanceParsec: star.distanceParsec,
+        distanceLightYears: star.distanceLightYears,
+        luminosity: star.N ?? 0,
+        colorRGB: [
+          clampColorComponent(star.K?.r),
+          clampColorComponent(star.K?.g),
+          clampColorComponent(star.K?.b),
+        ],
+      });
+    }
+
+    const homeOrb = new THREE.Mesh(homeGeometry, homeMaterial);
+    homeOrb.position.set(0, 0, 0);
+    homeOrb.renderOrder = 215;
+    highlightGroup.add(homeOrb);
+
+    scene.add(highlightGroup);
+
+    highlightGroupRef.current = highlightGroup;
+    highlightResourcesRef.current = resources;
+
+    onBirthdayMatchesChange?.(matchesForCallback);
+
+    return cleanupHighlight;
+  }, [
+    birthdayAgeYears,
+    birthdayAgeTolerance,
+    onBirthdayMatchesChange,
+    scene,
+    starDataVersion,
+  ]);
 
   useEffect(() => {
     if (!materialRef.current) {

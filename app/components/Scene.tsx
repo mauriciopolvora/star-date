@@ -3,12 +3,15 @@
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ControlsUI } from "./ControlsUI";
 import type { SelectedStarInfo } from "./ControlsUI";
 import { Earth } from "./Earth";
 import { StarField } from "./StarField";
+
+const MS_PER_YEAR = 1000 * 60 * 60 * 24 * 365.25;
+const BIRTHDAY_TOLERANCE_YEARS = 0.75;
 
 /**
  * Main 3D scene content with stars, Earth, camera, and post-processing
@@ -17,20 +20,55 @@ function SceneContent({
   autoRotate,
   starBrightness,
   onControlsReady,
+  onCameraDistanceChange,
   starsLoaded,
   onStarsLoaded,
   onStarSelected,
   selectedStarIndex,
+  birthdayAgeYears,
+  birthdayAgeTolerance,
+  onBirthdayMatchesChange,
 }: {
   autoRotate: boolean;
   starBrightness: number;
   onControlsReady: (controls: OrbitControlsImpl) => void;
+  onCameraDistanceChange: (distance: number) => void;
   starsLoaded: boolean;
   onStarsLoaded: () => void;
   onStarSelected: (star: SelectedStarInfo | null) => void;
   selectedStarIndex: number | null;
+  birthdayAgeYears: number | null;
+  birthdayAgeTolerance: number;
+  onBirthdayMatchesChange: (stars: SelectedStarInfo[]) => void;
 }) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const lastDistanceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (controlsRef.current) {
+      const controls = controlsRef.current;
+      onControlsReady(controls);
+      const distance = controls.getDistance();
+      lastDistanceRef.current = distance;
+      onCameraDistanceChange(distance);
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      const controls = controlsRef.current;
+      if (!controls) {
+        return;
+      }
+      onControlsReady(controls);
+      const distance = controls.getDistance();
+      lastDistanceRef.current = distance;
+      onCameraDistanceChange(distance);
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [onControlsReady, onCameraDistanceChange]);
 
   return (
     <>
@@ -61,6 +99,14 @@ function SceneContent({
         onChange={() => {
           if (controlsRef.current) {
             onControlsReady(controlsRef.current);
+            const distance = controlsRef.current.getDistance();
+            if (
+              lastDistanceRef.current == null ||
+              Math.abs(lastDistanceRef.current - distance) > 0.5
+            ) {
+              lastDistanceRef.current = distance;
+              onCameraDistanceChange(distance);
+            }
           }
         }}
       />
@@ -72,6 +118,9 @@ function SceneContent({
         onLoaded={onStarsLoaded}
         onStarSelected={onStarSelected}
         selectedStarIndex={selectedStarIndex}
+        birthdayAgeYears={birthdayAgeYears}
+        birthdayAgeTolerance={birthdayAgeTolerance}
+        onBirthdayMatchesChange={onBirthdayMatchesChange}
       />
 
       {/* Earth appears after stars are loaded */}
@@ -99,6 +148,9 @@ export function Scene() {
   const [starsLoaded, setStarsLoaded] = useState(false);
   const [selectedStar, setSelectedStar] =
     useState<SelectedStarInfo | null>(null);
+  const [cameraDistance, setCameraDistance] = useState(50);
+  const [birthdayValue, setBirthdayValue] = useState<string>("");
+  const [birthdayMatches, setBirthdayMatches] = useState<SelectedStarInfo[]>([]);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const handleStarSelected = useCallback(
     (star: SelectedStarInfo | null) => {
@@ -106,6 +158,23 @@ export function Scene() {
     },
     [],
   );
+  const handleControlsReady = useCallback((controls: OrbitControlsImpl) => {
+    controlsRef.current = controls;
+  }, []);
+  const handleCameraDistanceChange = useCallback((distance: number) => {
+    setCameraDistance((previous) =>
+      Math.abs(previous - distance) > 0.5 ? distance : previous,
+    );
+  }, []);
+  const effectiveStarBrightness = useMemo(() => {
+    const baselineDistance = 50;
+    const safeDistance = Math.max(cameraDistance, baselineDistance);
+    const multiplier = Math.min(
+      (safeDistance / baselineDistance) ** 0.6,
+      100,
+    );
+    return starBrightness * multiplier;
+  }, [cameraDistance, starBrightness]);
   const selectedStarColorText = selectedStar
     ? `rgb(${selectedStar.colorRGB
         .map((channel) => Math.round(channel * 255))
@@ -114,6 +183,45 @@ export function Scene() {
   const selectedStarColorStyle = selectedStar
     ? { backgroundColor: selectedStarColorText }
     : undefined;
+  const birthdayDate = useMemo(() => {
+    if (!birthdayValue) {
+      return null;
+    }
+    const parts = birthdayValue.split("-");
+    if (parts.length !== 3) {
+      return null;
+    }
+    const [yearStr, monthStr, dayStr] = parts;
+    const year = Number.parseInt(yearStr, 10);
+    const month = Number.parseInt(monthStr, 10);
+    const day = Number.parseInt(dayStr, 10);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return null;
+    }
+    return new Date(Date.UTC(year, month - 1, day));
+  }, [birthdayValue]);
+  const birthdayAgeYears = useMemo(() => {
+    if (!birthdayDate) {
+      return null;
+    }
+    const now = Date.now();
+    const diffMs = now - birthdayDate.getTime();
+    if (!Number.isFinite(diffMs) || diffMs <= 0) {
+      return null;
+    }
+    return diffMs / MS_PER_YEAR;
+  }, [birthdayDate]);
+  const handleBirthdayChange = useCallback((value: string) => {
+    setBirthdayValue(value);
+    setBirthdayMatches([]);
+  }, []);
+  const handleBirthdayMatches = useCallback((matches: SelectedStarInfo[]) => {
+    setBirthdayMatches(matches);
+  }, []);
+  const handleClearBirthday = useCallback(() => {
+    setBirthdayValue("");
+    setBirthdayMatches([]);
+  }, []);
 
   return (
     <>
@@ -128,14 +236,16 @@ export function Scene() {
       >
         <SceneContent
           autoRotate={autoRotate}
-          starBrightness={starBrightness}
-          onControlsReady={(controls) => {
-            controlsRef.current = controls;
-          }}
+          starBrightness={effectiveStarBrightness}
+          onControlsReady={handleControlsReady}
+          onCameraDistanceChange={handleCameraDistanceChange}
           starsLoaded={starsLoaded}
           onStarsLoaded={() => setStarsLoaded(true)}
           onStarSelected={handleStarSelected}
           selectedStarIndex={selectedStar ? selectedStar.index : null}
+          birthdayAgeYears={birthdayAgeYears}
+          birthdayAgeTolerance={BIRTHDAY_TOLERANCE_YEARS}
+          onBirthdayMatchesChange={handleBirthdayMatches}
         />
       </Canvas>
 
@@ -184,6 +294,12 @@ export function Scene() {
         starBrightness={starBrightness}
         selectedStar={selectedStar}
         onClearSelectedStar={() => handleStarSelected(null)}
+        birthdayValue={birthdayValue}
+        onBirthdayChange={handleBirthdayChange}
+        onClearBirthday={handleClearBirthday}
+        birthdayAgeYears={birthdayAgeYears}
+        matchingStarCount={birthdayMatches.length}
+        birthdayToleranceYears={BIRTHDAY_TOLERANCE_YEARS}
       />
     </>
   );

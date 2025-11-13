@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Star Date - Real-World Star Visualization",
+  title: "Star Date",
   description:
     "Interactive 3D visualization of real-world star data from the BSC5P catalog using Three.js",
 };

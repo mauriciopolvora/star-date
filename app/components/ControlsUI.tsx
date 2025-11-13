@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 
 export interface SelectedStarInfo {
   index: number;
@@ -24,6 +24,12 @@ interface ControlsUIProps {
   starBrightness?: number;
   selectedStar?: SelectedStarInfo | null;
   onClearSelectedStar?: () => void;
+  birthdayValue?: string;
+  onBirthdayChange?: (value: string) => void;
+  onClearBirthday?: () => void;
+  birthdayAgeYears?: number | null;
+  matchingStarCount?: number;
+  birthdayToleranceYears?: number;
 }
 
 export function ControlsUI({
@@ -34,6 +40,12 @@ export function ControlsUI({
   starBrightness = 1,
   selectedStar = null,
   onClearSelectedStar,
+  birthdayValue = "",
+  onBirthdayChange,
+  onClearBirthday,
+  birthdayAgeYears = null,
+  matchingStarCount = 0,
+  birthdayToleranceYears,
 }: ControlsUIProps) {
   const [isOpen, setIsOpen] = useState(false);
   const sliderValue = Math.round(starBrightness * 100);
@@ -50,10 +62,25 @@ export function ControlsUI({
         .join(",")})`
     : "";
 
-  const handleBrightnessChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBrightnessChange = (e: ChangeEvent<HTMLInputElement>) => {
     const value = Number.parseInt(e.target.value, 10);
     onAdjustStarBrightness?.(value / 100);
   };
+
+  const handleBirthdayInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    onBirthdayChange?.(e.target.value);
+  };
+
+  const birthdayHelperText = (() => {
+    if (!birthdayValue) {
+      return "Enter your birthday to reveal stars whose light left in that moment.";
+    }
+    if (matchingStarCount > 0) {
+      return `Found ${matchingStarCount} birthday star${matchingStarCount === 1 ? "" : "s"}.`;
+    }
+    const tolerance = birthdayToleranceYears ?? 0;
+    return `No matches within ±${tolerance.toFixed(1)} light years yet.`;
+  })();
 
   return (
     <>
@@ -114,6 +141,36 @@ export function ControlsUI({
               onChange={handleBrightnessChange}
               className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
             />
+          </div>
+
+          {/* Birthday star search */}
+          <div className="mb-4 rounded-md border border-zinc-700 bg-zinc-800/60 p-3">
+            <label htmlFor="birthday" className="text-sm block mb-2">
+              Birthday Star Finder
+            </label>
+            <input
+              id="birthday"
+              type="date"
+              value={birthdayValue}
+              onChange={handleBirthdayInputChange}
+              className="w-full rounded-md border border-zinc-700 bg-zinc-900/70 px-3 py-2 text-sm text-white focus:border-cyan-400 focus:outline-none"
+            />
+            <p className="mt-2 text-xs text-zinc-400">{birthdayHelperText}</p>
+            {birthdayValue && birthdayAgeYears != null && (
+              <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+                <span>Light travel age</span>
+                <span>{birthdayAgeYears.toFixed(1)} years</span>
+              </div>
+            )}
+            {birthdayValue && (
+              <button
+                type="button"
+                onClick={() => onClearBirthday?.()}
+                className="mt-3 w-full rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:text-white"
+              >
+                Clear Birthday
+              </button>
+            )}
           </div>
 
           {/* Selected star information */}
